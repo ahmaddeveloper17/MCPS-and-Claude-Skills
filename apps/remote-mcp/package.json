@@ -9,9 +9,6 @@
   "scripts": {
     "start": "bun run src/index.ts"
   },
-  "devDependencies": {
-    "@types/node": "^26.1.0"
-  },
   "dependencies": {
     "@clerk/backend": "^3.10.0",
     "@clerk/mcp-tools": "^0.5.0",
