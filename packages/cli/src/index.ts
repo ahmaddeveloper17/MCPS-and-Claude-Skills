@@ -1,7 +1,55 @@
 import { Command } from "commander";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { sendTelegramMessage } from "sendkit-core";
+import { z } from "zod";
 
 const program = new Command();
+const configPath = join(homedir(), ".config", "sendkit", "config.json");
+
+const cliConfigSchema = z.object({
+  telegramBotToken: z.string().min(1).optional(),
+});
+
+function writeTelegramBotToken(token: string) {
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(
+    configPath,
+    `${JSON.stringify({ telegramBotToken: token }, null, 2)}\n`,
+    {
+      mode: 0o600,
+    },
+  );
+}
+
+function getTelegramBotToken() {
+  if (!existsSync(configPath)) {
+    throw new Error("Telegram bot token is required. Run `sendkit init`.");
+  }
+
+  const config = cliConfigSchema.parse(
+    JSON.parse(readFileSync(configPath, "utf8")),
+  );
+  const token = config.telegramBotToken;
+
+  if (!token) {
+    throw new Error("Telegram bot token is required. Run `sendkit init`.");
+  }
+
+  return token;
+}
+
+program.name("sendkit").description("SendKit CLI backed by sendkit-core");
+
+program
+  .command("init")
+  .description("Configure SendKit CLI local settings")
+  .requiredOption("--telegram-bot-token <botToken>", "Telegram bot token")
+  .action(async (options: { telegramBotToken: string }) => {
+    writeTelegramBotToken(options.telegramBotToken);
+    console.log(`Saved SendKit CLI config to ${configPath}`);
+  });
 
 program
   .name("sendkit")
@@ -11,31 +59,16 @@ program
   .argument("<chatId>", "Telegram Chat ID")
   .argument("<message>", "Message test to send")
   .action(async (chatId: string, message: string) => {
-    try {
-      const token = process.env.TELEGRAM_BOT_TOKEN;
-      if (!token) {
-        console.error(
-          "Error: TELEGRAM_BOT_TOKEN environment variable is not set.",
-        );
-        process.exit(1);
-      }
-      if (!chatId || !message) {
-        console.error("Error: Both chatId and message are required.");
-        process.exit(1);
-      }
+    const result = await sendTelegramMessage({
+      botToken: getTelegramBotToken(),
+      chatId,
+      message,
+    });
 
-      const result = await sendTelegramMessage({
-        botToken: token,
-        chatId,
-        message,
-      });
-
-      console.log(
-        `Message has been send to ${result.chatId} and text ${result.messageId}`,
-      );
-    } catch (error) {
-      console.error("Error sending Telegram message:", error);
-    }
+    console.log(JSON.stringify(result));
   });
 
-program.parseAsync(process.argv);
+await program.parseAsync(process.argv).catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
